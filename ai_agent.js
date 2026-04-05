@@ -275,20 +275,38 @@
         try{const r=await fetch(GAS_URL+'?action=count');const d=await r.json();return d.count!==undefined?d.count:'?';}catch{return'?';}
     }
 
-    // Fetch targets from Google Sheet via GAS getTargets action.
-    // Expects: { success:true, targets: { "district|chiefdom|phu": number } }
-    // Sheet tabs: "District Targets", "Chiefdom Targets", "School Targets"
-    async function fetchTargetsFromSheet(){
-        try{
-            const res=await Promise.race([
-                fetch(GAS_URL+'?action=getTargets'),
-                new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout')),6000))
-            ]);
-            if(!res.ok) return null;
-            const d=await res.json();
-            if(d.success&&d.targets) return d.targets;
-        }catch(e){console.warn('[Targets] Fetch failed:',e.message);}
-        return null;
+    // Build targets from the already-loaded CSV cascading data.
+    // ALL_LOCATION_DATA structure: { district: { chiefdom: { section: { phu: { community: [schools] } } } } }
+    // Counts: district target = all schools in that district
+    //         chiefdom target = all schools in that chiefdom
+    //         phu target      = all schools under that phu
+    function buildTargetsFromCSV() {
+        const data = window.ALL_LOCATION_DATA || {};
+        const targets = {};
+
+        for (const district in data) {
+            const dKey = district.trim().toLowerCase();
+
+            for (const chiefdom in data[district]) {
+                const cKey = dKey + '|' + chiefdom.trim().toLowerCase();
+
+                for (const section in data[district][chiefdom]) {
+                    for (const phu in data[district][chiefdom][section]) {
+                        const pKey = cKey + '|' + phu.trim().toLowerCase();
+
+                        for (const community in data[district][chiefdom][section][phu]) {
+                            const schools = data[district][chiefdom][section][phu][community];
+                            const n = Array.isArray(schools) ? schools.length : 0;
+                            if (n === 0) continue;
+                            targets[dKey]  = (targets[dKey]  || 0) + n;
+                            targets[cKey]  = (targets[cKey]  || 0) + n;
+                            targets[pKey]  = (targets[pKey]  || 0) + n;
+                        }
+                    }
+                }
+            }
+        }
+        return targets;
     }
 
     // ════════════════════════════════════════════════════════
@@ -425,21 +443,30 @@
             return;
         }
 
-        // Check if targets loaded from sheet
-        const targets = window._TARGETS || {};
+        // Targets come from CSV (already computed). Look up the right level
+        // based on active filters: district-only → dKey, +chiefdom → cKey, +phu → pKey
+        const targets    = window._TARGETS || {};
         const hasTargets = Object.keys(targets).length > 0;
-        const fD = (document.getElementById('af_district')?.value||'').toLowerCase();
-        const fC = (document.getElementById('af_chiefdom')?.value||'').toLowerCase();
-        const fP = (document.getElementById('af_facility')?.value||'').toLowerCase();
+        const fD = (document.getElementById('af_district')?.value||'').trim().toLowerCase();
+        const fC = (document.getElementById('af_chiefdom')?.value||'').trim().toLowerCase();
+        const fP = (document.getElementById('af_facility')?.value||'').trim().toLowerCase();
         let targetCount = 0;
         if (hasTargets) {
-            Object.entries(targets).forEach(([k, v]) => {
-                const parts   = k.split('|');
-                const matchD  = !fD || parts[0] === fD;
-                const matchC  = !fC || parts[1] === fC;
-                const matchP  = !fP || parts[2] === fP;
-                if (matchD && matchC && matchP) targetCount += v;
-            });
+            if (fP && fC && fD) {
+                // PHU level
+                targetCount = targets[fD+'|'+fC+'|'+fP] || 0;
+            } else if (fC && fD) {
+                // Chiefdom level
+                targetCount = targets[fD+'|'+fC] || 0;
+            } else if (fD) {
+                // District level
+                targetCount = targets[fD] || 0;
+            } else {
+                // National total — sum all district-level entries (single-segment keys)
+                Object.entries(targets).forEach(([k, v]) => {
+                    if (!k.includes('|')) targetCount += v;
+                });
+            }
         }
 
         // Aggregate
@@ -626,15 +653,10 @@
         if(body)body.innerHTML=`<div class="an-loading"><div class="an-spinner"></div><div class="an-load-txt">Fetching data from Google Sheets…</div></div>`;
         if(sub)sub.textContent='Loading…';
 
-        // Fetch submissions + targets in parallel
-        const [sheetRows, targetsData] = await Promise.all([
-            fetchSheetData(),
-            fetchTargetsFromSheet()
-        ]);
+        // Fetch submissions; targets come from the CSV already in memory
+        const sheetRows = await fetchSheetData();
         _sheetRows = sheetRows;
-        if (targetsData && Object.keys(targetsData).length > 0) {
-            window._TARGETS = targetsData;
-        }
+        window._TARGETS = buildTargetsFromCSV();
 
         runAnalysis(sheetRows);
     };
@@ -647,14 +669,9 @@
     window.anRefresh=async function(){
         const body=document.getElementById('analysisBody');
         if(body)body.innerHTML=`<div class="an-loading"><div class="an-spinner"></div><div class="an-load-txt">Refreshing from Google Sheets…</div></div>`;
-        const [rows, targetsData] = await Promise.all([
-            fetchSheetData(),
-            fetchTargetsFromSheet()
-        ]);
+        const rows = await fetchSheetData();
         _sheetRows = rows;
-        if (targetsData && Object.keys(targetsData).length > 0) {
-            window._TARGETS = targetsData;
-        }
+        window._TARGETS = buildTargetsFromCSV();
         runAnalysis(rows);
     };
 
