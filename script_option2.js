@@ -92,63 +92,70 @@ function injectInstallBanner() {
     const banner = document.createElement('div');
     banner.id = 'pwaInstallBanner';
     banner.innerHTML = `
-      <div id="pwaInstallContent" style="display:flex;align-items:center;gap:12px;">
+      <div id="pwaInstallContent" style="display:flex;align-items:center;gap:12px;pointer-events:all;">
         <div style="width:40px;height:40px;background:#fff;border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0;overflow:hidden;border:2px solid rgba(200,153,26,.5);">
           <img src="./icons/icon-192.png" style="width:36px;height:36px;object-fit:contain;"
-               onerror="this.style.display='none';this.parentElement.innerHTML='<span style=\'font-size:20px\'>📲</span>'">
+               onerror="this.style.display='none';this.parentElement.innerHTML='<span style=\\'font-size:20px\\'>📲</span>'">
         </div>
         <div style="flex:1;min-width:0;">
           <div style="font-family:'Oswald',sans-serif;font-size:13px;font-weight:700;color:#fff;letter-spacing:.4px;">SBD 2026 — ITN Survey</div>
           <div style="font-size:11px;color:rgba(255,255,255,.7);margin-top:1px;">Install for offline use &amp; quick access</div>
         </div>
-        <button id="pwaInstallBtn" style="
+        <button id="pwaInstallBtn" onclick="pwaDoInstall()" style="
           background:#c8991a;color:#fff;border:none;border-radius:8px;
-          padding:9px 18px;font-family:'Oswald',sans-serif;font-size:12px;
+          padding:10px 20px;font-family:'Oswald',sans-serif;font-size:13px;
           font-weight:700;letter-spacing:.5px;cursor:pointer;white-space:nowrap;
-          flex-shrink:0;transition:background .2s;">INSTALL</button>
-        <button id="pwaInstallClose" style="
-          background:rgba(255,255,255,.15);color:#fff;border:none;border-radius:6px;
-          width:28px;height:28px;cursor:pointer;font-size:16px;
-          display:flex;align-items:center;justify-content:center;flex-shrink:0;">✕</button>
+          flex-shrink:0;transition:background .2s;
+          pointer-events:all;-webkit-tap-highlight-color:transparent;
+          touch-action:manipulation;">INSTALL</button>
+        <button id="pwaInstallClose" onclick="pwaCloseBanner()" style="
+          background:rgba(255,255,255,.18);color:#fff;border:none;border-radius:6px;
+          min-width:32px;height:32px;cursor:pointer;font-size:18px;line-height:1;
+          display:flex;align-items:center;justify-content:center;flex-shrink:0;
+          pointer-events:all;-webkit-tap-highlight-color:transparent;
+          touch-action:manipulation;">✕</button>
       </div>`;
 
     Object.assign(banner.style, {
         position:       'fixed',
-        bottom:         '-100px',
+        bottom:         '-120px',
         left:           '50%',
         transform:      'translateX(-50%)',
         width:          'calc(100% - 24px)',
-        maxWidth:       '500px',
+        maxWidth:       '520px',
         background:     'linear-gradient(135deg,#002952,#004080)',
         borderRadius:   '14px',
         padding:        '12px 14px',
-        boxShadow:      '0 8px 32px rgba(0,0,0,.4)',
+        boxShadow:      '0 -4px 40px rgba(0,0,0,.5), 0 8px 32px rgba(0,0,0,.4)',
         border:         '1.5px solid rgba(200,153,26,.4)',
-        zIndex:         '99999',
+        zIndex:         '2147483647',  // max possible z-index
         transition:     'bottom .4s cubic-bezier(.34,1.56,.64,1)',
         boxSizing:      'border-box',
+        pointerEvents:  'all',
     });
 
     document.body.appendChild(banner);
-
-    // Install button click
-    document.getElementById('pwaInstallBtn').addEventListener('click', async () => {
-        if (!deferredPrompt) return;
-        deferredPrompt.prompt();
-        const { outcome } = await deferredPrompt.userChoice;
-        deferredPrompt = null;
-        if (outcome === 'accepted') {
-            showInstallSuccess();
-        } else {
-            hideBanner();
-        }
-    });
-
-    // Close button — just hide, always comes back on next page load
-    document.getElementById('pwaInstallClose').addEventListener('click', () => {
-        hideBanner();
-    });
 }
+
+// Global functions called by onclick (avoids event delegation issues)
+window.pwaDoInstall = async function() {
+    if (!deferredPrompt) return;
+    const btn = document.getElementById('pwaInstallBtn');
+    if (btn) { btn.textContent = '…'; btn.disabled = true; }
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    deferredPrompt = null;
+    if (outcome === 'accepted') {
+        showInstallSuccess();
+    } else {
+        hideBanner();
+        if (btn) { btn.textContent = 'INSTALL'; btn.disabled = false; }
+    }
+};
+
+window.pwaCloseBanner = function() {
+    hideBanner();
+};
 
 function showBanner() {
     const banner = document.getElementById('pwaInstallBanner');
