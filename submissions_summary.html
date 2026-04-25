@@ -99,7 +99,10 @@ body{font-family:'Oswald',sans-serif;background:#f0f4f8;min-height:100vh;}
     <button class="btn btn-primary" onclick="resyncFailed('failed')">🔄 RESYNC FAILED</button>
     <button class="btn btn-primary" onclick="resyncFailed('all')" style="background:#1a6abf;">↻ RESYNC ALL</button>
     <button class="btn btn-primary" onclick="location.reload()">🔃 REFRESH</button>
+    <button class="btn btn-primary" onclick="toggleDebug()" style="background:#666;">🐛 DEBUG</button>
   </div>
+
+  <div id="debugConsole" style="display:none;background:#222;color:#0f0;padding:12px;border-radius:8px;margin-bottom:16px;font-family:monospace;font-size:10px;max-height:200px;overflow-y:auto;white-space:pre-wrap;word-wrap:break-word;"></div>
 
   <div class="table-wrap">
     <table class="table">
@@ -162,6 +165,25 @@ const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbymRy-M5v0fVLWUjw4IX
 const PASSWORD = 'admin123';
 let allSubmissions = [];
 let isAuthenticated = false;
+let debugLogs = [];
+
+// Capture console logs
+const originalLog = console.log;
+console.log = function(...args) {
+    originalLog.apply(console, args);
+    const msg = args.join(' ');
+    debugLogs.push(msg);
+    const debugDiv = document.getElementById('debugConsole');
+    if (debugDiv) {
+        debugDiv.textContent += msg + '\n';
+        debugDiv.scrollTop = debugDiv.scrollHeight;
+    }
+};
+
+function toggleDebug() {
+    const debugDiv = document.getElementById('debugConsole');
+    debugDiv.style.display = debugDiv.style.display === 'none' ? 'block' : 'none';
+}
 
 function checkPassword() {
     const pwd = document.getElementById('passwordInput').value;
@@ -182,16 +204,59 @@ function goBack() {
 
 async function loadSubmissions() {
     try {
-        const offlineSubs = JSON.parse(localStorage.getItem('offlineSubmissions') || '[]');
+        // Try multiple localStorage keys
+        let offlineSubs = [];
+        const possibleKeys = ['offlineSubmissions', 'submissions', 'localSubmissions', 'draftSubmissions'];
         
+        for (const key of possibleKeys) {
+            const data = localStorage.getItem(key);
+            if (data) {
+                try {
+                    offlineSubs = JSON.parse(data);
+                    if (offlineSubs.length > 0) {
+                        console.log(`Found submissions under key: ${key} (${offlineSubs.length} records)`);
+                        break;
+                    }
+                } catch(e) {
+                    console.log(`Failed to parse ${key}:`, e);
+                }
+            }
+        }
+
+        // If still empty, check all localStorage keys
+        if (offlineSubs.length === 0) {
+            console.log('Checking all localStorage keys...');
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                console.log(`LocalStorage key ${i}: ${key}`);
+                try {
+                    const val = localStorage.getItem(key);
+                    if (val.length < 5000) {
+                        console.log(`  Value: ${val.substring(0, 200)}`);
+                    }
+                } catch(e) {}
+            }
+        }
+
+        // Get online submissions from GAS
         const onlineSubs = await fetch(SCRIPT_URL + '?action=getData')
             .then(r => r.json())
-            .then(r => r.data || [])
-            .catch(() => []);
+            .then(r => {
+                console.log('GAS data received:', r.data ? r.data.length + ' records' : 'none');
+                return r.data || [];
+            })
+            .catch(e => {
+                console.error('GAS fetch error:', e);
+                return [];
+            });
 
+        // Create synced ID set
         const syncedIds = new Set(onlineSubs.map(s => s._submission_id).filter(Boolean));
+        console.log('Synced IDs from GAS:', syncedIds.size);
 
-        allSubmissions = offlineSubs.map((sub, idx) => ({
+        // Combine and build display data
+        const allSubs = [...offlineSubs];
+        allSubmissions = allSubs.map((sub, idx) => ({
             index: idx + 1,
             _submission_id: sub._submission_id || '',
             date: sub.submission_timestamp || sub.date || '—',
@@ -204,17 +269,26 @@ async function loadSubmissions() {
             raw: sub
         }));
 
+        console.log('Total submissions to display:', allSubmissions.length);
         renderTable();
 
     } catch(e) {
         console.error('Load error:', e);
+        document.getElementById('submissionsBody').innerHTML = `<tr><td colspan="10" style="text-align:center;padding:40px;color:#dc3545;">Error loading submissions: ${e.message}</td></tr>`;
     }
 }
 
 function renderTable() {
     const body = document.getElementById('submissionsBody');
     if (!allSubmissions.length) {
-        body.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:40px;color:#94a3b8;">No submissions found</td></tr>';
+        body.innerHTML = `<tr><td colspan="10" style="text-align:center;padding:40px;color:#94a3b8;">
+            No submissions found<br><br>
+            <small style="font-size:9px;color:#6b7280;">
+            • Check browser console (F12) for errors<br>
+            • Click 🐛 DEBUG button to see logs<br>
+            • Check if submissions were saved to phone
+            </small>
+        </td></tr>`;
         return;
     }
 
@@ -364,6 +438,14 @@ function logResync(msg) {
 
 // Focus on password input
 document.getElementById('passwordInput').focus();
+
+// Show debug info on load
+console.log('=== SUBMISSIONS PAGE LOADED ===');
+console.log('Password: admin123');
+console.log('Checking for stored submissions...');
+setTimeout(() => {
+    console.log('LocalStorage keys:', Object.keys(localStorage).join(', ') || 'NONE');
+}, 500);
 
 </script>
 </body>
