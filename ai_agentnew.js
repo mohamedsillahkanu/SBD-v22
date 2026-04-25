@@ -751,150 +751,162 @@
         );
     }
 
-    // SIMPLIFIED TARGETS TAB
-    // Target = unique schools with School Status = "Old"
-    // Submitted = unique schools that submitted (excluding duplicates)
+    // SIMPLIFIED TARGETS TAB - Use existing buildTargetsTree()
+    // Target = schools from buildTargetsTree (School Status = "Old")
+    // Submitted = unique schools from submissions (count once per school)
     // Achievement % = (Submitted / Target) × 100%
+
+    // Normalize school names: trim and collapse multiple spaces
+    function normalizeSchoolName(name) {
+        return (name || '')
+            .trim()
+            .toLowerCase()
+            .replace(/\s+/g, ' ')  // Collapse multiple spaces to single space
+            .replace(/_2026$/i, '')  // Remove _2026 suffix
+            .trim();
+    }
 
     function renderTargetsTab() {
         const body = document.getElementById('targetsBody');
         if (!body) return;
 
-        // ── BUILD TARGET FROM CSV (Old schools only) ──────────────────
-        const csvSchools = {}; // key = dist|chf|school, value = 1
-        const allData = mergeData(_sheetRows || []);
-        
-        allData.forEach(function(row) {
-            const status = (row['School Status'] || row.status || 'Old').trim().toLowerCase();
-            // Only count "Old" schools
-            if (status !== 'old' && status !== 'no') return;
+        try {
+            // Use existing function to build targets tree from cascading_data.csv
+            const tree = buildTargetsTree ? buildTargetsTree() : {};
             
-            const dist = (row.District || row.district || '').trim().toLowerCase();
-            const chf = (row.Chiefdom || row.chiefdom || '').trim().toLowerCase();
-            const school = (row['School Name'] || row.school_name || '').trim().toLowerCase();
+            // Get submitted schools from submissions
+            const submissions = _sheetRows || [];
+            const submittedSchools = {};
             
-            if (!dist || !chf || !school) return;
-            const key = dist + '|' + chf + '|' + school;
-            csvSchools[key] = 1;
-        });
-
-        const targetCount = Object.keys(csvSchools).length;
-
-        // ── BUILD SUBMITTED SET (unique schools only) ──────────────────
-        const submittedSchools = {}; // key = dist|chf|school, value = 1
-        const submissions = _sheetRows || [];
-        
-        submissions.forEach(function(row) {
-            const dist = (row.district || row.District || '').trim().toLowerCase();
-            const chf = (row.chiefdom || row.Chiefdom || '').trim().toLowerCase();
-            const school = (row.school_name || row['School Name'] || '').trim().toLowerCase().replace(/_2026$/i, '');
-            
-            if (!dist || !chf || !school) return;
-            const key = dist + '|' + chf + '|' + school;
-            submittedSchools[key] = 1; // Just mark as submitted (only count once)
-        });
-
-        const submittedCount = Object.keys(submittedSchools).length;
-        const achievement = targetCount > 0 ? Math.round((submittedCount / targetCount) * 100) : 0;
-
-        // ── BUILD DISTRICT/CHIEFDOM SUMMARY ──────────────────────────────
-        const districtData = {}; // dist → chf → { target, submitted }
-        
-        Object.keys(csvSchools).forEach(function(key) {
-            const parts = key.split('|');
-            const dist = parts[0], chf = parts[1];
-            if (!districtData[dist]) districtData[dist] = {};
-            if (!districtData[dist][chf]) districtData[dist][chf] = { target: 0, submitted: 0 };
-            districtData[dist][chf].target++;
-        });
-
-        Object.keys(submittedSchools).forEach(function(key) {
-            const parts = key.split('|');
-            const dist = parts[0], chf = parts[1];
-            if (!districtData[dist]) districtData[dist] = {};
-            if (!districtData[dist][chf]) districtData[dist][chf] = { target: 0, submitted: 0 };
-            districtData[dist][chf].submitted++;
-        });
-
-        // ── RENDER SUMMARY CARDS ──────────────────────────────────────────
-        let html = '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px;">' +
-            '<div style="background:#f0fdf4;border-radius:10px;padding:14px;text-align:center;border-left:3px solid #10b981;">' +
-            '<div style="font-size:24px;font-weight:700;color:#10b981;">' + targetCount + '</div>' +
-            '<div style="font-size:10px;color:#6b7280;letter-spacing:.5px;margin-top:4px;text-transform:uppercase;">Target Schools (Old)</div>' +
-            '</div>' +
-            '<div style="background:#ecfdf5;border-radius:10px;padding:14px;text-align:center;border-left:3px solid #06b6d4;">' +
-            '<div style="font-size:24px;font-weight:700;color:#06b6d4;">' + submittedCount + '</div>' +
-            '<div style="font-size:10px;color:#6b7280;letter-spacing:.5px;margin-top:4px;text-transform:uppercase;">Schools Submitted</div>' +
-            '</div>' +
-            '<div style="background:#fffbf0;border-radius:10px;padding:14px;text-align:center;border-left:3px solid #f59e0b;">' +
-            '<div style="font-size:24px;font-weight:700;color:#f59e0b;">' + achievement + '%</div>' +
-            '<div style="font-size:10px;color:#6b7280;letter-spacing:.5px;margin-top:4px;text-transform:uppercase;">Achievement</div>' +
-            '</div></div>';
-
-        // ── DISTRICT SUMMARY TABLE ──────────────────────────────────────────
-        html += '<div style="background:#fff;border-radius:10px;overflow:hidden;margin-bottom:14px;box-shadow:0 2px 8px rgba(0,0,0,.06);">' +
-            '<table style="width:100%;border-collapse:collapse;">' +
-            '<thead><tr style="background:linear-gradient(135deg,#f0fdf4,#e0f8f4);border-bottom:1px solid #d1fae5;">' +
-            '<th style="padding:11px 12px;text-align:left;font-size:11px;font-weight:700;color:#047857;letter-spacing:.4px;text-transform:uppercase;">District</th>' +
-            '<th style="padding:11px 12px;text-align:right;font-size:11px;font-weight:700;color:#047857;letter-spacing:.4px;text-transform:uppercase;">Target</th>' +
-            '<th style="padding:11px 12px;text-align:right;font-size:11px;font-weight:700;color:#047857;letter-spacing:.4px;text-transform:uppercase;">Submitted</th>' +
-            '<th style="padding:11px 12px;text-align:right;font-size:11px;font-weight:700;color:#047857;letter-spacing:.4px;text-transform:uppercase;">Achievement %</th>' +
-            '</tr></thead><tbody>';
-
-        Object.keys(districtData).sort().forEach(function(dist) {
-            let dTarget = 0, dSubmitted = 0;
-            Object.keys(districtData[dist]).forEach(function(chf) {
-                dTarget += districtData[dist][chf].target;
-                dSubmitted += districtData[dist][chf].submitted;
-            });
-            const dRate = dTarget > 0 ? Math.round((dSubmitted / dTarget) * 100) : 0;
-            
-            html += '<tr style="border-bottom:1px solid #f0f4f8;"><td style="padding:11px 12px;font-size:11px;font-weight:700;color:#0d9488;">' + 
-                dist.toUpperCase() + '</td>' +
-                '<td style="padding:11px 12px;text-align:right;font-size:11px;color:#6b7280;">' + dTarget + '</td>' +
-                '<td style="padding:11px 12px;text-align:right;font-size:11px;color:#6b7280;">' + dSubmitted + '</td>' +
-                '<td style="padding:11px 12px;text-align:right;font-size:11px;font-weight:600;color:#f59e0b;">' + dRate + '%</td></tr>';
-        });
-
-        html += '</tbody></table></div>';
-
-        // ── CHIEFDOM BREAKDOWN (Expandable) ──────────────────────────────────
-        html += '<div style="font-size:12px;font-weight:700;color:#047857;letter-spacing:.5px;margin:16px 0 12px 0;text-transform:uppercase;border-bottom:2px solid #d1fae5;padding-bottom:8px;">🔍 Detail by Chiefdom</div>';
-
-        Object.keys(districtData).sort().forEach(function(dist) {
-            const chiefdoms = Object.keys(districtData[dist]).sort();
-            let dTarget = 0, dSubmitted = 0;
-            chiefdoms.forEach(c => {
-                dTarget += districtData[dist][c].target;
-                dSubmitted += districtData[dist][c].submitted;
-            });
-            const dRate = dTarget > 0 ? Math.round((dSubmitted / dTarget) * 100) : 0;
-
-            html += '<div style="background:#fff;border-radius:12px;margin-bottom:10px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.06);">' +
-                '<div style="padding:12px 16px;background:linear-gradient(135deg,#ecfdf5,#f0fdf4);cursor:pointer;display:flex;justify-content:space-between;align-items:center;user-select:none;" onclick="toggleDistrictTargets(this)">' +
-                '<div><div style="font-size:12px;font-weight:700;color:#047857;letter-spacing:.5px;">' + dist.toUpperCase() + '</div>' +
-                '<div style="font-size:10px;color:#6b7280;margin-top:2px;">Target: ' + dTarget + ' | Submitted: ' + dSubmitted + ' | ' + dRate + '%</div></div>' +
-                '<span data-tog style="font-size:16px;">▼</span></div>' +
-                '<div style="padding:10px 12px;">';
-
-            chiefdoms.forEach(function(chf) {
-                const c = districtData[dist][chf];
-                const cRate = c.target > 0 ? Math.round((c.submitted / c.target) * 100) : 0;
-                const pbWidth = Math.min(cRate, 100);
+            submissions.forEach(function(row) {
+                const dist = (row.district || row.District || '').trim().toLowerCase();
+                const chf = (row.chiefdom || row.Chiefdom || '').trim().toLowerCase();
+                const school = normalizeSchoolName(row.school_name || row['School Name'] || '');
                 
-                html += '<div style="background:#f9fafb;border-radius:8px;padding:10px;margin-bottom:8px;border-left:3px solid #06b6d4;">' +
-                    '<div style="font-size:11px;font-weight:700;color:#0d9488;letter-spacing:.3px;">' + chf + '</div>' +
-                    '<div style="font-size:10px;color:#6b7280;margin-top:2px;">Target: <strong>' + c.target + '</strong> schools | Submitted: <strong>' + c.submitted + '</strong></div>' +
-                    '<div style="margin-top:5px;"><div style="height:6px;background:#dbeafe;border-radius:3px;overflow:hidden;">' +
-                    '<div style="height:100%;background:linear-gradient(90deg,#06b6d4,#14b8a6);width:' + pbWidth + '%;border-radius:3px;"></div>' +
-                    '</div><div style="font-size:9px;color:#6b7280;margin-top:2px;">' + cRate + '% achievement</div></div>' +
-                    '</div>';
+                if (!dist || !chf || !school) return;
+                const key = dist + '|' + chf + '|' + school;
+                submittedSchools[key] = 1;
             });
 
-            html += '</div></div>';
-        });
+            // Build target set from tree (Old schools only)
+            const csvSchools = {};
+            for (const d in tree) {
+                for (const c in tree[d]) {
+                    const schools = tree[d][c].schools || [];
+                    schools.forEach(function(sch) {
+                        const key = d.toLowerCase() + '|' + c.toLowerCase() + '|' + normalizeSchoolName(sch.name || '');
+                        csvSchools[key] = 1;
+                    });
+                }
+            }
 
-        body.innerHTML = html;
+            const targetCount = Object.keys(csvSchools).length;
+            const submittedCount = Object.keys(submittedSchools).length;
+            const achievement = targetCount > 0 ? Math.round((submittedCount / targetCount) * 100) : 0;
+
+            // Build district/chiefdom summary
+            const districtData = {};
+            
+            Object.keys(csvSchools).forEach(function(key) {
+                const parts = key.split('|');
+                const dist = parts[0], chf = parts[1];
+                if (!districtData[dist]) districtData[dist] = {};
+                if (!districtData[dist][chf]) districtData[dist][chf] = { target: 0, submitted: 0 };
+                districtData[dist][chf].target++;
+            });
+
+            Object.keys(submittedSchools).forEach(function(key) {
+                const parts = key.split('|');
+                const dist = parts[0], chf = parts[1];
+                if (!districtData[dist]) districtData[dist] = {};
+                if (!districtData[dist][chf]) districtData[dist][chf] = { target: 0, submitted: 0 };
+                districtData[dist][chf].submitted++;
+            });
+
+            // Render HTML
+            let html = '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px;">' +
+                '<div style="background:#f0fdf4;border-radius:10px;padding:14px;text-align:center;border-left:3px solid #10b981;">' +
+                '<div style="font-size:24px;font-weight:700;color:#10b981;">' + targetCount + '</div>' +
+                '<div style="font-size:10px;color:#6b7280;letter-spacing:.5px;margin-top:4px;text-transform:uppercase;">Target Schools (Old)</div>' +
+                '</div>' +
+                '<div style="background:#ecfdf5;border-radius:10px;padding:14px;text-align:center;border-left:3px solid #06b6d4;">' +
+                '<div style="font-size:24px;font-weight:700;color:#06b6d4;">' + submittedCount + '</div>' +
+                '<div style="font-size:10px;color:#6b7280;letter-spacing:.5px;margin-top:4px;text-transform:uppercase;">Schools Submitted</div>' +
+                '</div>' +
+                '<div style="background:#fffbf0;border-radius:10px;padding:14px;text-align:center;border-left:3px solid #f59e0b;">' +
+                '<div style="font-size:24px;font-weight:700;color:#f59e0b;">' + achievement + '%</div>' +
+                '<div style="font-size:10px;color:#6b7280;letter-spacing:.5px;margin-top:4px;text-transform:uppercase;">Achievement</div>' +
+                '</div></div>';
+
+            // District table
+            html += '<div style="background:#fff;border-radius:10px;overflow:hidden;margin-bottom:14px;box-shadow:0 2px 8px rgba(0,0,0,.06);">' +
+                '<table style="width:100%;border-collapse:collapse;">' +
+                '<thead><tr style="background:linear-gradient(135deg,#f0fdf4,#e0f8f4);border-bottom:1px solid #d1fae5;">' +
+                '<th style="padding:11px 12px;text-align:left;font-size:11px;font-weight:700;color:#047857;letter-spacing:.4px;text-transform:uppercase;">District</th>' +
+                '<th style="padding:11px 12px;text-align:right;font-size:11px;font-weight:700;color:#047857;letter-spacing:.4px;text-transform:uppercase;">Target</th>' +
+                '<th style="padding:11px 12px;text-align:right;font-size:11px;font-weight:700;color:#047857;letter-spacing:.4px;text-transform:uppercase;">Submitted</th>' +
+                '<th style="padding:11px 12px;text-align:right;font-size:11px;font-weight:700;color:#047857;letter-spacing:.4px;text-transform:uppercase;">Achievement %</th>' +
+                '</tr></thead><tbody>';
+
+            Object.keys(districtData).sort().forEach(function(dist) {
+                let dTarget = 0, dSubmitted = 0;
+                Object.keys(districtData[dist]).forEach(function(chf) {
+                    dTarget += districtData[dist][chf].target;
+                    dSubmitted += districtData[dist][chf].submitted;
+                });
+                const dRate = dTarget > 0 ? Math.round((dSubmitted / dTarget) * 100) : 0;
+                
+                html += '<tr style="border-bottom:1px solid #f0f4f8;"><td style="padding:11px 12px;font-size:11px;font-weight:700;color:#0d9488;">' + 
+                    dist.toUpperCase() + '</td>' +
+                    '<td style="padding:11px 12px;text-align:right;font-size:11px;color:#6b7280;">' + dTarget + '</td>' +
+                    '<td style="padding:11px 12px;text-align:right;font-size:11px;color:#6b7280;">' + dSubmitted + '</td>' +
+                    '<td style="padding:11px 12px;text-align:right;font-size:11px;font-weight:600;color:#f59e0b;">' + dRate + '%</td></tr>';
+            });
+
+            html += '</tbody></table></div>';
+
+            // Chiefdom breakdown
+            html += '<div style="font-size:12px;font-weight:700;color:#047857;letter-spacing:.5px;margin:16px 0 12px 0;text-transform:uppercase;border-bottom:2px solid #d1fae5;padding-bottom:8px;">🔍 Detail by Chiefdom</div>';
+
+            Object.keys(districtData).sort().forEach(function(dist) {
+                const chiefdoms = Object.keys(districtData[dist]).sort();
+                let dTarget = 0, dSubmitted = 0;
+                chiefdoms.forEach(c => {
+                    dTarget += districtData[dist][c].target;
+                    dSubmitted += districtData[dist][c].submitted;
+                });
+                const dRate = dTarget > 0 ? Math.round((dSubmitted / dTarget) * 100) : 0;
+
+                html += '<div style="background:#fff;border-radius:12px;margin-bottom:10px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.06);">' +
+                    '<div style="padding:12px 16px;background:linear-gradient(135deg,#ecfdf5,#f0fdf4);cursor:pointer;display:flex;justify-content:space-between;align-items:center;user-select:none;" onclick="toggleDistrictTargets(this)">' +
+                    '<div><div style="font-size:12px;font-weight:700;color:#047857;letter-spacing:.5px;">' + dist.toUpperCase() + '</div>' +
+                    '<div style="font-size:10px;color:#6b7280;margin-top:2px;">Target: ' + dTarget + ' | Submitted: ' + dSubmitted + ' | ' + dRate + '%</div></div>' +
+                    '<span data-tog style="font-size:16px;">▼</span></div>' +
+                    '<div style="padding:10px 12px;">';
+
+                chiefdoms.forEach(function(chf) {
+                    const c = districtData[dist][chf];
+                    const cRate = c.target > 0 ? Math.round((c.submitted / c.target) * 100) : 0;
+                    const pbWidth = Math.min(cRate, 100);
+                    
+                    html += '<div style="background:#f9fafb;border-radius:8px;padding:10px;margin-bottom:8px;border-left:3px solid #06b6d4;">' +
+                        '<div style="font-size:11px;font-weight:700;color:#0d9488;letter-spacing:.3px;">' + chf + '</div>' +
+                        '<div style="font-size:10px;color:#6b7280;margin-top:2px;">Target: <strong>' + c.target + '</strong> schools | Submitted: <strong>' + c.submitted + '</strong></div>' +
+                        '<div style="margin-top:5px;"><div style="height:6px;background:#dbeafe;border-radius:3px;overflow:hidden;">' +
+                        '<div style="height:100%;background:linear-gradient(90deg,#06b6d4,#14b8a6);width:' + pbWidth + '%;border-radius:3px;"></div>' +
+                        '</div><div style="font-size:9px;color:#6b7280;margin-top:2px;">' + cRate + '% achievement</div></div>' +
+                        '</div>';
+                });
+
+                html += '</div></div>';
+            });
+
+            body.innerHTML = html;
+
+        } catch(e) {
+            console.error('Targets Tab Error:', e);
+            body.innerHTML = '<div style="padding:20px;color:#dc3545;font-size:13px;"><strong>Error:</strong> ' + e.message + '<br><br>Check browser console (F12) for details.</div>';
+        }
     }
 
     // Toggle district accordion
@@ -909,8 +921,11 @@
             tog.textContent = '▶';
         }
     }
-            return;
-        }
+
+    // Render Analysis tab (Coverage, Boys/Girls, DMS/PHU, etc)
+    function renderAnalysisTab() {
+        const body = document.getElementById('analysisBody');
+        if (!body) return;
 
         // Show banner if sheet data not yet fetched
         const sheetBanner = _sheetRows.length === 0
@@ -923,10 +938,15 @@
                 Showing <strong>${_sheetRows.length} submissions</strong> from ICF-SL Server.
               </div>`;
         let natSchools = 0, natDone = 0;
+        const tree = buildTargetsTree ? buildTargetsTree() : {};
+        const submitted = getSubmittedSet ? getSubmittedSet() : new Set();
+        const districts = Object.keys(tree).sort();
+        
         districts.forEach(d => {
-            Object.values(tree[d].chiefdoms).forEach(c => {
-                natSchools += c.schools.length;
-                natDone    += c.schools.filter(s => submitted.has(s.key)).length;
+            Object.values(tree[d].chiefdoms || {}).forEach(c => {
+                const schools = c.schools || [];
+                natSchools += schools.length;
+                natDone    += schools.filter(s => submitted.has(s.key)).length;
             });
         });
         const natPct = natSchools > 0 ? Math.round((natDone / natSchools) * 100) : 0;
